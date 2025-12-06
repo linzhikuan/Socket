@@ -7,5 +7,5 @@ plugins {
 apply(from = "${rootProject.projectDir}/gradles/library.gradle")
 
 android {
-    namespace = "com.lzk.demo.core.socket"
+    namespace = "com.lzk.core.socket"
 }
