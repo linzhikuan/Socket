@@ -44,22 +44,24 @@ class UdpClient : IUdpClient {
     ) {
         scope.launch {
             mutex.withLock {
-                if (datagramSocket == null) {
-                    datagramSocket =
-                        DatagramSocket(localPort).apply {
-                            this.reuseAddress = true
-                            this.soTimeout = 0 // 无超时，阻塞等待
-                            startReceiving(this)
-                        }
-                } else {
-                    val sendPacket =
-                        DatagramPacket(
-                            data,
-                            data.size,
-                            InetAddress.getByName(remoteAddress),
-                            remotePort,
-                        )
-                    datagramSocket?.send(sendPacket)
+                runCatching {
+                    if (datagramSocket == null) {
+                        datagramSocket =
+                            DatagramSocket(localPort).apply {
+                                this.reuseAddress = true
+                                this.soTimeout = 0 // 无超时，阻塞等待
+                                startReceiving(this)
+                            }
+                    } else {
+                        val sendPacket =
+                            DatagramPacket(
+                                data,
+                                data.size,
+                                InetAddress.getByName(remoteAddress),
+                                remotePort,
+                            )
+                        datagramSocket?.send(sendPacket)
+                    }
                 }
             }
         }
