@@ -1,13 +1,13 @@
 package com.lzk.core.socket
 
 import com.lzk.core.socket.bean.UdpInfo
+import com.lzk.core.socket.data.UdpState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -27,14 +27,9 @@ class UdpClient : IUdpClient {
     private var datagramSocket: DatagramSocket? = null
     private var receiveJob: Job? = null
 
-    private val _udpDataFlow =
-        MutableSharedFlow<UdpInfo>(
-            extraBufferCapacity = 1,
-            replay = 0,
-            onBufferOverflow = BufferOverflow.DROP_LATEST,
-        )
+    private val _udpStateFlow = MutableStateFlow<UdpState>(UdpState.Init)
 
-    override val dataFlow: SharedFlow<UdpInfo> = _udpDataFlow.asSharedFlow()
+    override val stateFlow: StateFlow<UdpState> = _udpStateFlow.asStateFlow()
 
     override fun send(
         data: ByteArray,
@@ -62,6 +57,8 @@ class UdpClient : IUdpClient {
                             )
                         datagramSocket?.send(sendPacket)
                     }
+                }.onFailure {
+                    _udpStateFlow.emit(UdpState.OnError)
                 }
             }
         }
@@ -80,12 +77,14 @@ class UdpClient : IUdpClient {
                     val receivedData = packet.data.copyOf(packet.length)
                     val senderAddress = packet.address.hostAddress
                     val senderPort = packet.port
-                    _udpDataFlow.emit(
-                        UdpInfo(
-                            receivedData,
-                            senderAddress,
-                            senderPort,
-                            datagramSocket.localPort,
+                    _udpStateFlow.emit(
+                        UdpState.Receive(
+                            UdpInfo(
+                                receivedData,
+                                senderAddress,
+                                senderPort,
+                                datagramSocket.localPort,
+                            ),
                         ),
                     )
                 }

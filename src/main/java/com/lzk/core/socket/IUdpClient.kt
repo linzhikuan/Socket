@@ -1,10 +1,10 @@
 package com.lzk.core.socket
 
-import com.lzk.core.socket.bean.UdpInfo
-import kotlinx.coroutines.flow.SharedFlow
+import com.lzk.core.socket.data.UdpState
+import kotlinx.coroutines.flow.StateFlow
 
 interface IUdpClient {
-    val dataFlow: SharedFlow<UdpInfo>
+    val stateFlow: StateFlow<UdpState>
 
     fun send(
         data: ByteArray,
