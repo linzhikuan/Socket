@@ -1,13 +1,15 @@
 package com.lzk.core.socket
 
 import com.lzk.core.socket.bean.UdpInfo
-import com.lzk.core.socket.data.UdpState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -18,86 +20,122 @@ import java.net.InetAddress
 
 @Suppress("ktlint:standard:backing-property-naming")
 class UdpClient : IUdpClient {
+    private constructor()
+
     companion object {
         private const val BUFFER_SIZE = 1024
+        val instance: UdpClient by lazy(mode = LazyThreadSafetyMode.SYNCHRONIZED) { UdpClient() }
     }
 
-    private val scope = CoroutineScope(Job() + Dispatchers.IO)
-    private val mutex = Mutex()
-    private var datagramSocket: DatagramSocket? = null
-    private var receiveJob: Job? = null
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val mMutex = Mutex()
+    private val mSocketMap = hashMapOf<Int, DatagramSocket>()
+    private val mReceivingJobs = hashMapOf<Int, Job>()
+    private val _udpDataFlow =
+        MutableSharedFlow<UdpInfo>(
+            extraBufferCapacity = 1,
+            replay = 0,
+            onBufferOverflow = BufferOverflow.DROP_LATEST,
+        )
 
-    private val _udpStateFlow = MutableStateFlow<UdpState>(UdpState.Init)
+    override val udpDataFlow: SharedFlow<UdpInfo> = _udpDataFlow.asSharedFlow()
 
-    override val stateFlow: StateFlow<UdpState> = _udpStateFlow.asStateFlow()
-
-    override fun send(
+    override suspend fun sendMessage(
         data: ByteArray,
+        ip: String,
+        port: Int,
         localPort: Int,
-        remoteAddress: String,
-        remotePort: Int,
+    ) {
+        mMutex
+            .withLock {
+                mSocketMap[localPort] ?: DatagramSocket(localPort).apply {
+                    this.reuseAddress = true
+                    this.soTimeout = 0 // 无超时，阻塞等待
+                    mSocketMap[localPort] = this
+                    startReceiving(localPort)
+                }
+            }.apply {
+                val sendPacket =
+                    DatagramPacket(
+                        data,
+                        data.size,
+                        InetAddress.getByName(ip),
+                        port,
+                    )
+                this.send(sendPacket)
+            }
+    }
+
+    private fun startReceiving(localPort: Int) {
+        mReceivingJobs[localPort]?.cancel()
+        val datagramSocket = mSocketMap[localPort] ?: return
+        val job =
+            scope.launch {
+                while (isActive && !datagramSocket.isClosed) {
+                    try {
+                        // 每次循环都创建新的缓冲区和数据包
+                        val buffer = ByteArray(BUFFER_SIZE)
+                        val packet = DatagramPacket(buffer, buffer.size)
+
+                        datagramSocket.receive(packet) // 这里会阻塞直到收到数据
+
+                        // 提取实际接收到的数据（不是整个buffer）
+                        val receivedData = packet.data.copyOf(packet.length)
+                        val senderAddress = packet.address.hostAddress
+                        val senderPort = packet.port
+                        // 在这里处理接收到的数据
+                        handleReceivedData(
+                            receivedData,
+                            senderAddress,
+                            senderPort,
+                            datagramSocket.localPort,
+                        )
+                    } catch (e: Exception) {
+                        if (isActive && !datagramSocket.isClosed) {
+                            delay(1000)
+                        }
+                    }
+                }
+            }
+
+        mReceivingJobs[localPort] = job
+    }
+
+    private fun handleReceivedData(
+        data: ByteArray,
+        fromIp: String?,
+        fromPort: Int,
+        localPort: Int,
     ) {
         scope.launch {
-            mutex.withLock {
-                runCatching {
-                    if (datagramSocket == null) {
-                        datagramSocket =
-                            DatagramSocket(localPort).apply {
-                                this.reuseAddress = true
-                                this.soTimeout = 0 // 无超时，阻塞等待
-                                startReceiving(this)
-                            }
-                    } else {
-                        val sendPacket =
-                            DatagramPacket(
-                                data,
-                                data.size,
-                                InetAddress.getByName(remoteAddress),
-                                remotePort,
-                            )
-                        datagramSocket?.send(sendPacket)
-                    }
-                }.onFailure {
-                    _udpStateFlow.emit(UdpState.OnError)
-                }
+            _udpDataFlow.emit(UdpInfo(data, fromIp, fromPort, localPort))
+        }
+    }
+
+    /**
+     * 关闭指定端口的UDP socket
+     */
+    override fun closeSocket(port: Int) {
+        scope.launch {
+            mMutex.withLock {
+                mReceivingJobs[port]?.cancel()
+                mSocketMap[port]?.close()
+                mSocketMap.remove(port)
+                mReceivingJobs.remove(port)
             }
         }
     }
 
-    private fun startReceiving(datagramSocket: DatagramSocket) {
-        receiveJob?.cancel()
-        receiveJob =
-            scope.launch {
-                while (isActive && !datagramSocket.isClosed) {
-                    // 每次循环都创建新的缓冲区和数据包
-                    val buffer = ByteArray(BUFFER_SIZE)
-                    val packet = DatagramPacket(buffer, buffer.size)
-                    datagramSocket.receive(packet) // 这里会阻塞直到收到数据
-                    // 提取实际接收到的数据（不是整个buffer）
-                    val receivedData = packet.data.copyOf(packet.length)
-                    val senderAddress = packet.address.hostAddress
-                    val senderPort = packet.port
-                    _udpStateFlow.emit(
-                        UdpState.Receive(
-                            UdpInfo(
-                                receivedData,
-                                senderAddress,
-                                senderPort,
-                                datagramSocket.localPort,
-                            ),
-                        ),
-                    )
-                }
-            }
-    }
-
-    override fun destroy() {
+    /**
+     * 关闭所有UDP socket
+     */
+    override fun closeAllSockets() {
         scope.launch {
-            mutex.withLock {
-                datagramSocket?.close()
-                datagramSocket = null
-                receiveJob?.cancel()
-                receiveJob = null
+            mMutex.withLock {
+                mReceivingJobs.values.forEach { it.cancel() }
+                mSocketMap.values.forEach { it.close() }
+                mSocketMap.clear()
+                mReceivingJobs.clear()
             }
         }
     }
