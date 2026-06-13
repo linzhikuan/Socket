@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.concurrent.atomic.AtomicBoolean
@@ -29,24 +30,29 @@ class TcpClient : ITcpClient {
     val state: SharedFlow<TcpState>
         get() = _state.asSharedFlow()
 
-    override fun connect(
+    override suspend fun connect(
         ip: String,
         port: Int,
     ): Result<Boolean> =
-        runCatching {
-            socket.connect(InetSocketAddress(ip, port))
-            startRev()
-            true
-        }.onFailure {
-            _state.value = TcpState.ConnectFailed(it)
+        withContext(Dispatchers.IO) {
+            runCatching {
+                _state.value = TcpState.Connecting
+                socket.connect(InetSocketAddress(ip, port))
+                startRev()
+                true
+            }.onFailure {
+                _state.value = TcpState.ConnectFailed(it)
+            }
         }
 
-    override fun sendMessage(data: ByteArray): Result<Boolean> =
-        runCatching {
-            socket.getOutputStream().write(data)
-            true
-        }.onFailure {
-            _state.value = TcpState.OnSendMsgFailed(it)
+    override suspend fun sendMessage(data: ByteArray): Result<Boolean> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                socket.getOutputStream().write(data)
+                true
+            }.onFailure {
+                _state.value = TcpState.OnSendMsgFailed(it)
+            }
         }
 
     override fun close() {
