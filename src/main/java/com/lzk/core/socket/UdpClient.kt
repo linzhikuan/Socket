@@ -81,7 +81,7 @@ class UdpClient : IUdpClient {
 
                         // 提取实际接收到的数据（不是整个buffer）
                         val receivedData = packet.data.copyOf(packet.length)
-                        val senderAddress = packet.address.hostAddress
+                        val senderAddress = packet.address.hostAddress.orEmpty()
                         val senderPort = packet.port
                         // 在这里处理接收到的数据
                         handleReceivedData(
@@ -103,7 +103,7 @@ class UdpClient : IUdpClient {
 
     private fun handleReceivedData(
         data: ByteArray,
-        fromIp: String?,
+        fromIp: String,
         fromPort: Int,
         localPort: Int,
     ) {

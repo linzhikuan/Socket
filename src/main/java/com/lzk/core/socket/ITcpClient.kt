@@ -1,6 +1,6 @@
 package com.lzk.core.socket
 
-interface ISocketClient {
+interface ITcpClient {
     fun connect(
         ip: String,
         port: Int,

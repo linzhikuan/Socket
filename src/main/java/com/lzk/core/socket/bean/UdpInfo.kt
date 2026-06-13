@@ -2,7 +2,7 @@ package com.lzk.core.socket.bean
 
 data class UdpInfo(
     val data: ByteArray,
-    val fromIp: String?,
+    val fromIp: String,
     val fromPort: Int,
     val localPort: Int,
 ) {
@@ -24,7 +24,7 @@ data class UdpInfo(
         var result = fromPort
         result = 31 * result + localPort
         result = 31 * result + data.contentHashCode()
-        result = 31 * result + (fromIp?.hashCode() ?: 0)
+        result = 31 * result + (fromIp.hashCode())
         return result
     }
 }
