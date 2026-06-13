@@ -24,6 +24,7 @@ class UdpClient : IUdpClient {
 
     companion object {
         private const val BUFFER_SIZE = 1024
+        const val TCP_CONNECT_PORT = 30021
         val instance: UdpClient by lazy(mode = LazyThreadSafetyMode.SYNCHRONIZED) { UdpClient() }
     }
 
@@ -108,7 +109,7 @@ class UdpClient : IUdpClient {
         localPort: Int,
     ) {
         scope.launch {
-            _udpDataFlow.emit(UdpInfo(data, fromIp, fromPort, localPort))
+            _udpDataFlow.emit(UdpInfo(data, fromIp, fromPort, localPort, TCP_CONNECT_PORT))
         }
     }
 

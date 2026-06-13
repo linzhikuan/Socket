@@ -22,8 +22,8 @@ sealed class TcpState {
         override fun hashCode(): Int = byteArray.contentHashCode()
     }
 
-    data class OnDisconnect(
-        val throwable: Throwable,
+    data class OnClosed(
+        val throwable: Throwable?,
     ) : TcpState()
 
     data class OnSendMsgFailed(

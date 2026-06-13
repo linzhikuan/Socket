@@ -4,8 +4,6 @@ import com.lzk.core.socket.bean.TcpState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -17,14 +15,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class TcpClient : ITcpClient {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private val isConnected = AtomicBoolean(false)
-    private val socket: Socket by lazy {
-        Socket().apply {
-            setTcpNoDelay(true)
-            setKeepAlive(true)
-            setSoLinger(true, 0)
-        }
-    }
+    private var socket: Socket? = null
     private val _state = MutableStateFlow<TcpState>(TcpState.Init)
 
     val state: SharedFlow<TcpState>
@@ -37,10 +28,20 @@ class TcpClient : ITcpClient {
         withContext(Dispatchers.IO) {
             runCatching {
                 _state.value = TcpState.Connecting
-                socket.connect(InetSocketAddress(ip, port))
-                startRev()
+                if (socket != null) {
+                    throw IllegalStateException("socket is exit")
+                }
+                Socket().apply {
+                    socket = this
+                    setTcpNoDelay(true)
+                    setKeepAlive(true)
+                    setSoLinger(true, 0)
+                    connect(InetSocketAddress(ip, port))
+                    startRev(this)
+                }
                 true
             }.onFailure {
+                close()
                 _state.value = TcpState.ConnectFailed(it)
             }
         }
@@ -48,7 +49,7 @@ class TcpClient : ITcpClient {
     override suspend fun sendMessage(data: ByteArray): Result<Boolean> =
         withContext(Dispatchers.IO) {
             runCatching {
-                socket.getOutputStream().write(data)
+                socket?.getOutputStream()?.write(data)
                 true
             }.onFailure {
                 _state.value = TcpState.OnSendMsgFailed(it)
@@ -56,18 +57,22 @@ class TcpClient : ITcpClient {
         }
 
     override fun close() {
-        socket.close()
-        scope.cancel()
+        val exception =
+            runCatching {
+                socket?.close()
+                socket = null
+            }.exceptionOrNull()
+        _state.value = TcpState.OnClosed(exception)
     }
 
-    private fun startRev() {
+    private fun startRev(socket: Socket) {
         runCatching {
             val inputStream = socket.getInputStream()
             val buffer = ByteArray(1024)
-            while (isConnected.get()) {
+            while (socket.isConnected) {
                 runCatching {
                     val read = inputStream.read(buffer)
-                    if (read == -1) throw IllegalStateException("read size -1")
+                    if (read == -1) return@runCatching
                     // 处理接收到的数据
                     val buff = ByteArray(read)
                     System.arraycopy(buffer, 0, buff, 0, read)

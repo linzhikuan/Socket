@@ -5,6 +5,7 @@ data class UdpInfo(
     val fromIp: String,
     val fromPort: Int,
     val localPort: Int,
+    val tcpPort: Int,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
