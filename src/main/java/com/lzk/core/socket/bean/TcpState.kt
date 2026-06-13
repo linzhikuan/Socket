@@ -9,6 +9,8 @@ sealed class TcpState {
         val throwable: Throwable,
     ) : TcpState()
 
+    object ConnectSuccess : TcpState()
+
     data class OnReceiveMsg(
         val byteArray: ByteArray,
     ) : TcpState() {

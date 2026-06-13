@@ -11,7 +11,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.InetSocketAddress
 import java.net.Socket
-import java.util.concurrent.atomic.AtomicBoolean
 
 class TcpClient : ITcpClient {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -37,7 +36,12 @@ class TcpClient : ITcpClient {
                     setKeepAlive(true)
                     setSoLinger(true, 0)
                     connect(InetSocketAddress(ip, port))
-                    startRev(this)
+                    if (isConnected) {
+                        _state.value = TcpState.ConnectSuccess
+                        startRev(this)
+                    } else {
+                        throw IllegalStateException("连接失败")
+                    }
                 }
                 true
             }.onFailure {
