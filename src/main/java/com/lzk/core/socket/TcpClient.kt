@@ -25,11 +25,11 @@ class TcpClient : ITcpClient {
         port: Int,
     ): Result<Boolean> =
         withContext(Dispatchers.IO) {
+            if (socket != null) {
+                return@withContext Result.failure(IllegalStateException("socket is exit"))
+            }
             runCatching {
                 _state.value = TcpState.Connecting
-                if (socket != null) {
-                    throw IllegalStateException("socket is exit")
-                }
                 Socket().apply {
                     socket = this
                     setTcpNoDelay(true)
